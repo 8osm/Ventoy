@@ -402,21 +402,51 @@ int g_menu_update_mode = 0;
 int g_ventoy_tip_label_enable = 0;
 const char * g_ventoy_tip_msg1 = NULL;
 const char * g_ventoy_tip_msg2 = NULL;
+char g_ventoy_theme_path[256] = {0};
 static const char *g_ventoy_cur_img_path = NULL;
 static void menu_set_chosen_tip(grub_menu_t menu, int entry)
 {
+    int i;
     img_info *img;
+    menu_tip *tip;
     grub_menu_entry_t e = grub_menu_get_entry (menu, entry);
+
+    if (g_ventoy_theme_path[0])
+    {
+        grub_env_set("theme", g_ventoy_theme_path);        
+    }
 
     g_ventoy_tip_msg1 = g_ventoy_tip_msg2 = NULL;
     if (e && e->id && grub_strncmp(e->id, "VID_", 4) == 0) 
     {
+        g_ventoy_theme_path[0] = 0;
         img = (img_info *)(void *)grub_strtoul(e->id + 4, NULL, 16);
         if (img)
         {
             g_ventoy_tip_msg1 = img->tip1;
             g_ventoy_tip_msg2 = img->tip2;
             g_ventoy_cur_img_path = img->path;
+        }
+    }
+    else if (e && e->id && grub_strncmp(e->id, "DIR_", 4) == 0)
+    {
+        g_ventoy_theme_path[0] = 0;
+        for (i = 0; i < e->argc; i++)
+        {
+            if (e->args[i] && grub_strncmp(e->args[i], "_VTIP_", 6) == 0)
+            {
+                break;
+            }
+        }
+
+        if (i < e->argc)
+        {
+            tip = (menu_tip *)(void *)grub_strtoul(e->args[i] + 6, NULL, 16);
+            if (tip)
+            {
+                g_ventoy_tip_msg1 = tip->tip1;
+                g_ventoy_tip_msg2 = tip->tip2;
+            }
         }
     }
 }
@@ -429,6 +459,15 @@ menu_set_chosen_entry (grub_menu_t menu, int entry)
   menu_set_chosen_tip(menu, entry);
   for (cur = viewers; cur; cur = cur->next)
     cur->set_chosen_entry (entry, cur->data);
+}
+
+static void
+menu_scroll_chosen_entry (int diren)
+{
+  struct grub_menu_viewer *cur;
+  for (cur = viewers; cur; cur = cur->next)
+    if (cur->scroll_chosen_entry)
+      cur->scroll_chosen_entry (cur->data, diren);
 }
 
 static void
@@ -641,9 +680,7 @@ run_menu (grub_menu_t menu, int nested, int *auto_boot)
 
   if (g_ventoy_suppress_esc)
       default_entry = g_ventoy_suppress_esc_default;
-  else if (g_ventoy_last_entry >= 0 && g_ventoy_last_entry < menu->size) {
-      default_entry = g_ventoy_last_entry;
-  } 
+
   /* If DEFAULT_ENTRY is not within the menu entries, fall back to
      the first entry.  */
   else if (default_entry < 0 || default_entry >= menu->size)
@@ -816,6 +853,19 @@ run_menu (grub_menu_t menu, int nested, int *auto_boot)
 	      else
 		current_entry = menu->size - 1;
 	      menu_set_chosen_entry (menu, current_entry);
+	      break;
+
+	    case GRUB_TERM_KEY_RIGHT:
+	      menu_scroll_chosen_entry (1);
+	      break;
+	    case GRUB_TERM_KEY_LEFT:
+	      menu_scroll_chosen_entry (-1);
+	      break;
+	    case GRUB_TERM_CTRL | GRUB_TERM_KEY_RIGHT:
+	      menu_scroll_chosen_entry (1000000);
+	      break;
+	    case GRUB_TERM_CTRL | GRUB_TERM_KEY_LEFT:
+	      menu_scroll_chosen_entry (-1000000);
 	      break;
 
 	    case '\n':
